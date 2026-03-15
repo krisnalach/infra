@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
+	"github.com/krisnalach/infra/pkg/schema"
+	"github.com/krisnalach/infra/services/consumer/internal/window"
 )
 
 func consumer() {
@@ -23,7 +26,7 @@ func consumer() {
 
 	c, err := kafka.NewConsumer(&kafka.ConfigMap{
 		"bootstrap.servers": bootstrapServers,
-		"group.id":          "explore-consumer",
+		"group.id":          "kafka-consumer",
 		"auto.offset.reset": "earliest",
 	})
 
@@ -33,6 +36,9 @@ func consumer() {
 	defer c.Close()
 
 	c.SubscribeTopics([]string{"trades"}, nil)
+
+	// Each symbol has its own window
+	windows := make(map[string]*window.Window)
 
 	// i := 0
 	for {
@@ -47,7 +53,6 @@ func consumer() {
 					slog.Error("fatal consume error", "err", err)
 					break
 				}
-				// Transient errors (e.g. unknown topic while ingest is starting up)
 				slog.Warn("transient consume error, retrying", "err", err)
 				time.Sleep(2 * time.Second)
 				continue
@@ -55,11 +60,38 @@ func consumer() {
 			slog.Error("consume failed", "err", err)
 			break
 		}
-		logger.Debug("message consumed",
-			"partition", msg.TopicPartition.Partition,
-			"offset", msg.TopicPartition.Offset,
-			"key", string(msg.Key),
-			"value", string(msg.Value))
+		/* logger.Debug("message consumed",
+		"partition", msg.TopicPartition.Partition,
+		"offset", msg.TopicPartition.Offset,
+		"key", string(msg.Key),
+		"value", string(msg.Value)) */
+
+		var trade schema.Trade
+		if err := json.Unmarshal(msg.Value, &trade); err != nil {
+			continue
+		}
+
+		w, ok := windows[trade.ProductID]
+		if !ok {
+			slog.Info("window info", "new window", trade.ProductID)
+
+			w = &window.Window{
+				Symbol:   trade.ProductID,
+				Duration: 30,
+				Emit:     make(chan window.Stats, 1),
+			}
+
+			go func(w *window.Window) {
+				for stats := range w.Emit {
+					slog.Info("window data", "stats", stats.String())
+				}
+			}(w)
+
+			windows[trade.ProductID] = w
+		}
+
+		w.Add(trade)
+
 	}
 
 }

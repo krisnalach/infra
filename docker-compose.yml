@@ -22,7 +22,7 @@ services:
       dockerfile: services/ingest/Dockerfile
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      SYMBOLS: BTC-USD
+      SYMBOLS: BTC-USD,ETH-USD,USDT-USD
       LOG_LEVEL: debug
     depends_on:
       - kafka

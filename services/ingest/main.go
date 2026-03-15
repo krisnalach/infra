@@ -52,7 +52,9 @@ func producer() {
 		err = p.Produce(&kafka.Message{TopicPartition: kafka.TopicPartition{
 			Topic:     &topic,
 			Partition: kafka.PartitionAny,
-		}, Value: data,
+		},
+			Key:       []byte(t.ProductID),
+			Value:     data,
 			Timestamp: t.TradeTime}, nil)
 		if err != nil {
 			slog.Error("produce failed", "error", err)
